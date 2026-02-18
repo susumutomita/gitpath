@@ -115,10 +115,14 @@ ${answersText}
 
     const content = completion.choices[0]?.message?.content;
     if (content) {
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      // Validate required fields
+      if (parsed.curriculum && Array.isArray(parsed.curriculum.steps)) {
+        return parsed;
+      }
     }
   } catch {
-    // AI timeout or error - fall through to default
+    // AI timeout, parse error, or validation failure - fall through to default
   } finally {
     clearTimeout(timeout);
   }

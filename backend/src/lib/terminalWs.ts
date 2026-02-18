@@ -49,136 +49,149 @@ export function setupTerminalWebSocket(server: HttpServer): void {
   wss.on('connection', async (ws: WebSocket, _request: unknown, context: { terminalSessionId: string; userId: string }) => {
     const { terminalSessionId, userId } = context;
 
-    // Verify terminal session from Redis
-    const sessionData = await redis.get(`terminal:${terminalSessionId}`);
-    if (!sessionData) {
-      ws.close(4004, 'Terminal session not found');
-      return;
-    }
+    try {
+      // Verify terminal session from Redis
+      const sessionData = await redis.get(`terminal:${terminalSessionId}`);
+      if (!sessionData) {
+        ws.close(4004, 'Terminal session not found');
+        return;
+      }
 
-    const parsed = JSON.parse(sessionData);
-    if (parsed.userId !== userId) {
-      ws.close(4003, 'Unauthorized');
-      return;
-    }
+      let parsed: { userId: string };
+      try {
+        parsed = JSON.parse(sessionData);
+      } catch {
+        ws.close(4004, 'Invalid session data');
+        return;
+      }
+      if (parsed.userId !== userId) {
+        ws.close(4003, 'Unauthorized');
+        return;
+      }
 
-    // Get pty process
-    const ptyProcess = ptyProcesses.get(terminalSessionId);
-    if (!ptyProcess) {
-      ws.close(4004, 'Terminal process not found');
-      return;
-    }
+      // Get pty process
+      const ptyProcess = ptyProcesses.get(terminalSessionId);
+      if (!ptyProcess) {
+        ws.close(4004, 'Terminal process not found');
+        return;
+      }
 
-    // Track reconnection count
-    const reconnectKey = `terminal_reconnect:${terminalSessionId}`;
-    const reconnectCount = parseInt((await redis.get(reconnectKey)) || '0', 10);
+      // Track reconnection count
+      const reconnectKey = `terminal_reconnect:${terminalSessionId}`;
+      const reconnectCount = parseInt((await redis.get(reconnectKey)) || '0', 10);
 
-    if (reconnectCount >= MAX_RECONNECT) {
-      // Update DB and inform client
+      if (reconnectCount >= MAX_RECONNECT) {
+        // Update DB and inform client
+        await prisma.terminalSession.update({
+          where: { id: terminalSessionId },
+          data: { status: 'disconnected', reconnectCount },
+        });
+        ws.close(4029, 'Max reconnections exceeded');
+        return;
+      }
+
+      // Increment reconnect count in Redis (TTL 1 hour)
+      await redis.set(reconnectKey, String(reconnectCount + 1), 'EX', 3600);
+
+      // Update DB reconnect count
       await prisma.terminalSession.update({
         where: { id: terminalSessionId },
-        data: { status: 'disconnected', reconnectCount },
+        data: { reconnectCount: reconnectCount + 1, lastActiveAt: new Date(), status: 'active' },
       });
-      ws.close(4029, 'Max reconnections exceeded');
-      return;
-    }
 
-    // Increment reconnect count in Redis (TTL 1 hour)
-    await redis.set(reconnectKey, String(reconnectCount + 1), 'EX', 3600);
+      // Forward pty output to WebSocket
+      const dataHandler = ptyProcess.onData((data: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'output', data }));
+        }
+      });
 
-    // Update DB reconnect count
-    await prisma.terminalSession.update({
-      where: { id: terminalSessionId },
-      data: { reconnectCount: reconnectCount + 1, lastActiveAt: new Date(), status: 'active' },
-    });
+      const exitHandler = ptyProcess.onExit(({ exitCode }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'exit', exitCode }));
+          ws.close(1000, 'Process exited');
+        }
+      });
 
-    // Forward pty output to WebSocket
-    const dataHandler = ptyProcess.onData((data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'output', data }));
-      }
-    });
+      // Handle messages from WebSocket client
+      ws.on('message', async (message: Buffer) => {
+        try {
+          const msg = JSON.parse(message.toString());
 
-    const exitHandler = ptyProcess.onExit(({ exitCode }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'exit', exitCode }));
-        ws.close(1000, 'Process exited');
-      }
-    });
+          switch (msg.type) {
+            case 'input': {
+              // Validate command before sending to pty (check on Enter)
+              if (msg.data && msg.data.includes('\r')) {
+                const cmdLine = (msg.data as string).replace(/\r?\n?$/, '').trim();
+                if (cmdLine) {
+                  const validation = validateCommand(cmdLine);
+                  if (!validation.allowed) {
+                    // Block the command and notify client
+                    ws.send(JSON.stringify({
+                      type: 'blocked',
+                      reason: validation.reason,
+                      command: cmdLine,
+                    }));
 
-    // Handle messages from WebSocket client
-    ws.on('message', async (message: Buffer) => {
-      try {
-        const msg = JSON.parse(message.toString());
-
-        switch (msg.type) {
-          case 'input': {
-            // Validate command before sending to pty (check on Enter)
-            if (msg.data && msg.data.includes('\r')) {
-              const cmdLine = (msg.data as string).replace(/\r?\n?$/, '').trim();
-              if (cmdLine) {
-                const validation = validateCommand(cmdLine);
-                if (!validation.allowed) {
-                  // Block the command and notify client
-                  ws.send(JSON.stringify({
-                    type: 'blocked',
-                    reason: validation.reason,
-                    command: cmdLine,
-                  }));
-
-                  // Log the blocked command
-                  const termSession = await prisma.terminalSession.findUnique({
-                    where: { id: terminalSessionId },
-                  });
-                  if (termSession) {
-                    await prisma.commandLog.create({
-                      data: {
-                        terminalSessionId,
-                        learningSessionId: termSession.learningSessionId,
-                        commandText: cmdLine,
-                        isBlocked: true,
-                        blockReason: validation.reason,
-                      },
+                    // Log the blocked command
+                    const termSession = await prisma.terminalSession.findUnique({
+                      where: { id: terminalSessionId },
                     });
+                    if (termSession) {
+                      await prisma.commandLog.create({
+                        data: {
+                          terminalSessionId,
+                          learningSessionId: termSession.learningSessionId,
+                          commandText: cmdLine,
+                          isBlocked: true,
+                          blockReason: validation.reason,
+                        },
+                      });
+                    }
+                    return;
                   }
-                  return;
                 }
               }
+
+              // Forward input to pty
+              ptyProcess.write(msg.data);
+              break;
             }
 
-            // Forward input to pty
-            ptyProcess.write(msg.data);
-            break;
-          }
-
-          case 'resize': {
-            if (msg.cols && msg.rows) {
-              ptyProcess.resize(msg.cols, msg.rows);
-              await prisma.terminalSession.update({
-                where: { id: terminalSessionId },
-                data: { cols: msg.cols, rows: msg.rows },
-              });
+            case 'resize': {
+              if (msg.cols && msg.rows) {
+                ptyProcess.resize(msg.cols, msg.rows);
+                await prisma.terminalSession.update({
+                  where: { id: terminalSessionId },
+                  data: { cols: msg.cols, rows: msg.rows },
+                });
+              }
+              break;
             }
-            break;
-          }
 
-          case 'ping': {
-            ws.send(JSON.stringify({ type: 'pong' }));
-            break;
+            case 'ping': {
+              ws.send(JSON.stringify({ type: 'pong' }));
+              break;
+            }
           }
+        } catch {
+          // Ignore malformed messages
         }
-      } catch {
-        // Ignore malformed messages
+      });
+
+      // Handle WebSocket close
+      ws.on('close', () => {
+        dataHandler.dispose();
+        exitHandler.dispose();
+      });
+
+      // Send initial ready message
+      ws.send(JSON.stringify({ type: 'ready', terminalSessionId }));
+    } catch (err) {
+      console.error('WebSocket connection handler error:', err);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(4500, 'Internal server error');
       }
-    });
-
-    // Handle WebSocket close
-    ws.on('close', () => {
-      dataHandler.dispose();
-      exitHandler.dispose();
-    });
-
-    // Send initial ready message
-    ws.send(JSON.stringify({ type: 'ready', terminalSessionId }));
+    }
   });
 }

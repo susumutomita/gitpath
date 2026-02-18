@@ -71,6 +71,8 @@ test.describe("サインアップ → ログインフロー", () => {
   test("未入力でバリデーションエラーが表示される", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "ログイン" }).click();
+    // Switch to signup mode to get the "アカウントを作成" submit button
+    await page.getByRole("button", { name: "新規登録" }).click();
     await page.getByRole("button", { name: "アカウントを作成" }).click();
 
     await expect(

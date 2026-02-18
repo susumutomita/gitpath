@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
@@ -30,12 +30,12 @@ export default function HearingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [skipDialogOpen, setSkipDialogOpen] = useState(false);
-  const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
   // Initialize: create session + start hearing
   useEffect(() => {
-    if (initialized) return;
-    setInitialized(true);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
     const init = async () => {
       try {
@@ -73,7 +73,7 @@ export default function HearingPage() {
     };
 
     init();
-  }, [initialized, sessionId, setSessionId, setHearingSessionId, setCurrentQuestion]);
+  }, [sessionId, setSessionId, setHearingSessionId, setCurrentQuestion]);
 
   const handleSendMessage = useCallback(
     async (message: string) => {

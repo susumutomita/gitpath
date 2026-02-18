@@ -53,10 +53,11 @@ router.post('/reset', async (req: Request, res: Response) => {
       fs.mkdirSync(sandboxPath, { recursive: true });
     }
 
-    // Reset pty working directory
+    // Reset pty working directory (shell-escape the path to prevent injection)
     const ptyProcess = ptyProcesses.get(terminalSessionId);
     if (ptyProcess) {
-      ptyProcess.write(`cd ${sandboxPath}\r`);
+      const escapedPath = sandboxPath.replace(/'/g, "'\\''");
+      ptyProcess.write(`cd '${escapedPath}'\r`);
     }
 
     res.json({ reset: true });

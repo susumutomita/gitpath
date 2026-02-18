@@ -7,6 +7,11 @@ const router = Router();
 
 router.use(authenticate);
 
+// Validate GitHub username/repo name: alphanumeric, hyphens, dots, underscores only
+function isValidGitHubName(name: string): boolean {
+  return /^[a-zA-Z0-9._-]+$/.test(name) && name.length <= 100;
+}
+
 async function callGitHubApi(path: string, accessToken: string): Promise<{ ok: boolean; data: unknown; status: number; rateLimitRemaining?: number; rateLimitReset?: number }> {
   const response = await fetch(`https://api.github.com${path}`, {
     headers: {
@@ -97,6 +102,16 @@ router.post('/:milestoneId/verify', async (req: Request, res: Response) => {
 
     if (!sessionId || !githubUsername) {
       res.status(400).json({ error: 'sessionId and githubUsername are required' });
+      return;
+    }
+
+    // Validate inputs to prevent SSRF / path injection
+    if (!isValidGitHubName(githubUsername)) {
+      res.status(400).json({ error: 'Invalid GitHub username' });
+      return;
+    }
+    if (repoName && !isValidGitHubName(repoName)) {
+      res.status(400).json({ error: 'Invalid repository name' });
       return;
     }
 

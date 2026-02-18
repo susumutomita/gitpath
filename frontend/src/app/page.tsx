@@ -87,7 +87,11 @@ export default function Home() {
         data.lastSessionId
       );
       setAuthOpen(false);
-      router.push("/onboarding/hearing");
+      // If returning user with active session, show homepage (resume button visible)
+      // Otherwise, start fresh onboarding
+      if (!data.hasActiveSession) {
+        router.push("/onboarding/hearing");
+      }
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.error === "EMAIL_ALREADY_EXISTS") {
@@ -120,7 +124,9 @@ export default function Home() {
         data.lastSessionId
       );
       setAuthOpen(false);
-      router.push("/onboarding/hearing");
+      if (!data.hasActiveSession) {
+        router.push("/onboarding/hearing");
+      }
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.error === "EMAIL_ALREADY_EXISTS") {

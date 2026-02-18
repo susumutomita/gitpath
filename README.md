@@ -32,7 +32,7 @@
 
 ```bash
 # 1. リポジトリをクローン
-git clone https://github.com/your-org/gitpath.git
+git clone https://github.com/susumutomita/gitpath.git
 cd gitpath
 
 # 2. 環境変数を設定

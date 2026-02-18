@@ -56,11 +56,12 @@ router.post('/sessions', async (req: Request, res: Response) => {
       rows: termRows,
       cwd: sandboxPath,
       env: {
-        ...process.env,
         HOME: sandboxPath,
         TERM: 'xterm-256color',
-        // Restrict PATH for safety
         PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+        SHELL: shell,
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        USER: 'sandbox',
       },
     });
 

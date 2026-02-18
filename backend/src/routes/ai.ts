@@ -242,6 +242,7 @@ router.post('/generate-yaml', async (req: Request, res: Response) => {
     const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
 
     let aiResponse: string | null = null;
+    const startTime = Date.now();
 
     try {
       const completion = await getOpenAI().chat.completions.create(
@@ -265,6 +266,8 @@ router.post('/generate-yaml', async (req: Request, res: Response) => {
       clearTimeout(timeout);
     }
 
+    const responseTimeMs = Date.now() - startTime;
+
     if (!aiResponse) {
       res.status(503).json({ error: 'AI_API_UNAVAILABLE', message: 'AIが応答できていません、再試行してください' });
       return;
@@ -278,7 +281,7 @@ router.post('/generate-yaml', async (req: Request, res: Response) => {
         requestType: 'generate_yaml',
         promptSent: prompt,
         responseReceived: aiResponse,
-        responseTimeMs: 0,
+        responseTimeMs,
         isFiltered: false,
         apiError: false,
       },
