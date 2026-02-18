@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  passwordHash String?  @map("password_hash") @db.VarChar(255)
+  provider     String   @default("email") @db.VarChar(20)
+  googleSub    String?  @unique @map("google_sub") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  refreshTokens             RefreshToken[]
+  githubCredential          GithubCredential?
+  learningSessions          LearningSession[]
+  hearingSessions           HearingSession[]
+  userLevelProfiles         UserLevelProfile[]
+  userMilestones            UserMilestone[]
+  terminalSessions          TerminalSession[]
+  sandboxEvents             SandboxEvent[]
+  gitUnderstandingResponses GitUnderstandingResponse[]
+  certificates              Certificate[]
+  deviceConflictLogs        DeviceConflictLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model GithubCredential {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String   @unique @map("user_id") @db.Uuid
+  githubUserId        BigInt   @map("github_user_id")
+  githubUsername      String   @map("github_username") @db.VarChar(255)
+  accessTokenEncrypted String  @map("access_token_encrypted") @db.Text
+  scope               String?  @db.VarChar(500)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("github_credentials")
+}
+
+model LearningSession {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  status             String    @default("active") @db.VarChar(20)
+  currentStep        String    @default("hearing") @map("current_step") @db.VarChar(100)
+  accumulatedSeconds Int       @default(0) @map("accumulated_seconds")
+  firstStartedAt    DateTime  @default(now()) @map("first_started_at") @db.Timestamptz
+  lastActiveAt       DateTime  @default(now()) @map("last_active_at") @db.Timestamptz
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+  deviceInfo         Json?     @map("device_info") @db.JsonB
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user                      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hearingSessions           HearingSession[]
+  userLevelProfile          UserLevelProfile?
+  userMilestones            UserMilestone[]
+  terminalSessions          TerminalSession[]
+  commandLogs               CommandLog[]
+  aiExplanationLogs         AiExplanationLog[]
+  sandboxEvents             SandboxEvent[]
+  gitUnderstandingResponses GitUnderstandingResponse[]
+  certificate               Certificate?
+  deviceConflictLogs        DeviceConflictLog[]
+
+  @@index([userId], map: "idx_learning_sessions_user_id")
+  @@index([status], map: "idx_learning_sessions_status")
+  @@map("learning_sessions")
+}
+
+model HearingSession {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningSessionId String    @map("learning_session_id") @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  status            String    @default("in_progress") @db.VarChar(20)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hearingAnswers  HearingAnswer[]
+
+  @@map("hearing_sessions")
+}
+
+model HearingAnswer {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hearingSessionId String   @map("hearing_session_id") @db.Uuid
+  questionNumber   Int      @map("question_number")
+  questionText     String   @map("question_text") @db.Text
+  answerText       String?  @map("answer_text") @db.Text
+  isSkipped        Boolean  @default(false) @map("is_skipped")
+  answeredAt       DateTime @default(now()) @map("answered_at") @db.Timestamptz
+
+  hearingSession HearingSession @relation(fields: [hearingSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([hearingSessionId, questionNumber])
+  @@map("hearing_answers")
+}
+
+model UserLevelProfile {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String   @map("user_id") @db.Uuid
+  learningSessionId     String   @unique @map("learning_session_id") @db.Uuid
+  levelEstimate         String   @map("level_estimate") @db.VarChar(20)
+  occupation            String?  @db.VarChar(255)
+  pcExperienceYears     Int?     @map("pc_experience_years")
+  programmingExperience String?  @map("programming_experience") @db.VarChar(50)
+  productIdeaSummary    String?  @map("product_idea_summary") @db.Text
+  domainKeywords        Json?    @map("domain_keywords") @db.JsonB
+  curriculum            Json     @db.JsonB
+  estimatedAt           DateTime @default(now()) @map("estimated_at") @db.Timestamptz
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+
+  @@map("user_level_profiles")
+}
+
+model MilestoneDefinition {
+  id                     Int     @id
+  name                   String  @db.VarChar(100)
+  description            String  @db.Text
+  stepOrder              Int     @map("step_order")
+  githubVerificationType String? @map("github_verification_type") @db.VarChar(50)
+
+  userMilestones UserMilestone[]
+
+  @@map("milestone_definitions")
+}
+
+model UserMilestone {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  learningSessionId  String    @map("learning_session_id") @db.Uuid
+  milestoneId        Int       @map("milestone_id")
+  completed          Boolean   @default(false)
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+  verifiedViaGithubApi Boolean @default(false) @map("verified_via_github_api")
+  githubApiResponse  Json?     @map("github_api_response") @db.JsonB
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningSession    LearningSession     @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+  milestoneDefinition MilestoneDefinition @relation(fields: [milestoneId], references: [id])
+
+  @@unique([learningSessionId, milestoneId])
+  @@index([learningSessionId], map: "idx_user_milestones_session")
+  @@map("user_milestones")
+}
+
+model TerminalSession {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningSessionId String   @map("learning_session_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  processPid        Int?     @map("process_pid")
+  sandboxPath       String?  @map("sandbox_path") @db.VarChar(500)
+  status            String   @default("active") @db.VarChar(20)
+  cols              Int      @default(80)
+  rows              Int      @default(24)
+  reconnectCount    Int      @default(0) @map("reconnect_count")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  lastActiveAt      DateTime @default(now()) @map("last_active_at") @db.Timestamptz
+
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commandLogs     CommandLog[]
+
+  @@map("terminal_sessions")
+}
+
+model CommandLog {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  terminalSessionId    String   @map("terminal_session_id") @db.Uuid
+  learningSessionId    String   @map("learning_session_id") @db.Uuid
+  commandText          String   @map("command_text") @db.Text
+  stdout               String?  @db.Text
+  stderr               String?  @db.Text
+  exitCode             Int?     @map("exit_code")
+  isBlocked            Boolean  @default(false) @map("is_blocked")
+  blockReason          String?  @map("block_reason") @db.VarChar(255)
+  consecutiveErrorCount Int     @default(0) @map("consecutive_error_count")
+  executedAt           DateTime @default(now()) @map("executed_at") @db.Timestamptz
+
+  terminalSession TerminalSession @relation(fields: [terminalSessionId], references: [id], onDelete: Cascade)
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+
+  @@index([terminalSessionId], map: "idx_command_logs_terminal_session")
+  @@map("command_logs")
+}
+
+model AiExplanationLog {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningSessionId String   @map("learning_session_id") @db.Uuid
+  stepId            String   @map("step_id") @db.VarChar(100)
+  requestType       String   @map("request_type") @db.VarChar(50)
+  promptSent        String   @map("prompt_sent") @db.Text
+  responseReceived  String?  @map("response_received") @db.Text
+  responseTimeMs    Int?     @map("response_time_ms")
+  isFiltered        Boolean  @default(false) @map("is_filtered")
+  apiError          Boolean  @default(false) @map("api_error")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+
+  @@index([learningSessionId], map: "idx_ai_explanation_logs_session")
+  @@map("ai_explanation_logs")
+}
+
+model SandboxEvent {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningSessionId String   @map("learning_session_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  eventType         String   @map("event_type") @db.VarChar(50)
+  stepName          String   @map("step_name") @db.VarChar(100)
+  durationMs        Int?     @map("duration_ms")
+  metadata          Json?    @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([learningSessionId], map: "idx_sandbox_events_session")
+  @@map("sandbox_events")
+}
+
+model GitUnderstandingResponse {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningSessionId String   @map("learning_session_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  understands       Boolean
+  freeText          String?  @map("free_text") @db.Text
+  respondedAt       DateTime @default(now()) @map("responded_at") @db.Timestamptz
+
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("git_understanding_responses")
+}
+
+model Certificate {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningSessionId String   @unique @map("learning_session_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  githubUsername    String   @map("github_username") @db.VarChar(255)
+  elapsedSeconds    Int      @map("elapsed_seconds")
+  completedAt       DateTime @map("completed_at") @db.Timestamptz
+  milestoneDetails  Json     @map("milestone_details") @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([id], map: "idx_certificates_id")
+  @@map("certificates")
+}
+
+model DeviceConflictLog {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  learningSessionId String   @map("learning_session_id") @db.Uuid
+  winningDeviceInfo Json?    @map("winning_device_info") @db.JsonB
+  conflictedAt      DateTime @default(now()) @map("conflicted_at") @db.Timestamptz
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningSession LearningSession @relation(fields: [learningSessionId], references: [id], onDelete: Cascade)
+
+  @@map("device_conflict_logs")
+}
