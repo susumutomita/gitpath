@@ -1,0 +1,16 @@
+{
+  "name": "gitpath",
+  "version": "0.0.1",
+  "private": true,
+  "description": "GitPath - Git/CI/CD learning platform for non-engineers",
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "install:all": "cd shared && npm install && cd ../backend && npm install && cd ../frontend && npm install",
+    "build:shared": "cd shared && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  }
+}
